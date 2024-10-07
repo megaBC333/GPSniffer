@@ -1,3 +1,23 @@
+# What It Does
+
+**Wi-Fi Scanning:** The ESP32 scans for available Wi-Fi networks and records the SSID and RSSI (signal strength).
+
+**GPS Tracking:** The GPS module provides latitude and longitude information during scanning, which is logged along with the Wi-Fi network data.
+
+**SD Card Logging:** The data (SSID, RSSI, and GPS coordinates) is logged into a file on the SD card (/wifi_log.txt).
+
+**OLED Display:** Displays the SSID, RSSI, and GPS coordinates for each scanned network on the OLED.
+
+**Tracking Strongest RSSI:** The updateNetworkInfo function tracks the highest RSSI value for each Wi-Fi network. If a stronger signal is detected for a known SSID, it updates the saved RSSI and the GPS coordinates.
+
+## What It Looks Like (for now)
+
+[front](https://imgur.com/KktRTuJ)
+
+[back](https://imgur.com/im2gqPw)
+
+## Code
+
 ```
 #include <WiFi.h>
 #include <Wire.h>

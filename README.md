@@ -12,9 +12,9 @@
 
 ## What It Looks Like (for now)
 
-[front](https://imgur.com/KktRTuJ)
+[front](https://github.com/megaBC333/GPSniffer/blob/main/front.jpg)
 
-[back](https://imgur.com/im2gqPw)
+[back](https://github.com/megaBC333/GPSniffer/blob/main/back.jpg)
 
 ## Code
 

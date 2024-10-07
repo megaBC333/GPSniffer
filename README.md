@@ -14,6 +14,14 @@
 
 [back](https://github.com/megaBC333/GPSniffer/blob/main/back.jpg)
 
+## What I Have Planned
+
+**Dedicated standalone PCB**
+
+**Better debugging**
+
+**Better network location estimation based on RSSI**
+
 ## Code
 
 ```

@@ -32,24 +32,25 @@
 #include <SPI.h>
 #include <SD.h>
 
-// GPS settings
+// GPS and OLED settings
 TinyGPSPlus gps;
-HardwareSerial ss(1);
-
-// OLED display settings
+HardwareSerial GPSserial(1); // Using hardware serial for GPS
 #define SCREEN_WIDTH 128
 #define SCREEN_HEIGHT 64
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
 
-// SD card settings
+// SD card and LED settings
 #define SD_CS 5
+#define LED_BUILTIN 2
+
+// Variables to store the log file
+String filename;
 
 void setup() {
-  // Serial setup
   Serial.begin(115200);
-  ss.begin(9600, SERIAL_8N1, 16, 17);  // RX, TX for GPS
+  GPSserial.begin(9600, SERIAL_8N1, 16, 17);  // RX, TX for GPS
 
-  // OLED initialization
+  // Initialize OLED
   if (!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
     Serial.println("SSD1306 allocation failed");
     for (;;);
@@ -58,31 +59,36 @@ void setup() {
   display.setTextSize(1);
   display.setTextColor(WHITE);
   display.setCursor(0, 0);
-  display.print("Starting WiFi + GPS Logging");
+  display.print("Initializing...");
   display.display();
-  delay(2000);
 
-  // SD card initialization
+  // Initialize SD card
   if (!SD.begin(SD_CS)) {
-    Serial.println("SD card initialization failed!");
+    Serial.println("SD Card Initialization failed!");
     display.clearDisplay();
-    display.setCursor(0, 0);
     display.print("SD init failed");
     display.display();
     return;
   }
-  Serial.println("SD card initialized.");
+  Serial.println("SD Card Initialized.");
 
-  // WiFi setup (not connected, just scanning)
-  WiFi.mode(WIFI_STA);
-  WiFi.disconnect();
-  delay(100);
+  // Initialize LED
+  pinMode(LED_BUILTIN, OUTPUT);
+  digitalWrite(LED_BUILTIN, LOW);
+
+  // Wait for GPS fix to get valid time
+  filename = getGPSFilename();
+  Serial.println("Log filename: " + filename);
+
+  display.clearDisplay();
+  display.print("Ready");
+  display.display();
 }
 
 void loop() {
-  // GPS processing
-  while (ss.available() > 0) {
-    gps.encode(ss.read());
+  // GPS data processing
+  while (GPSserial.available() > 0) {
+    gps.encode(GPSserial.read());
   }
 
   double latitude = gps.location.isValid() ? gps.location.lat() : 0.0;
@@ -90,52 +96,86 @@ void loop() {
 
   // Wi-Fi scanning
   int n = WiFi.scanNetworks();
-  Serial.println("Scan complete");
+  Serial.println("Scan done");
 
-  // OLED display update
+  // Update OLED display
   display.clearDisplay();
   display.setCursor(0, 0);
-
-  for (int i = 0; i < n && i < 3; ++i) {  // Show max 3 networks on OLED
+  for (int i = 0; i < n && i < 3; ++i) {  // Show max 3 networks
     display.print(WiFi.SSID(i));
     display.print(" (");
     display.print(WiFi.RSSI(i));
     display.print(")");
     display.println();
   }
-
   display.print("Lat: ");
   display.println(latitude, 6);
   display.print("Long: ");
   display.println(longitude, 6);
   display.display();
 
-  // SD card logging
-  File dataFile = SD.open("/log.txt", FILE_APPEND);
-  if (dataFile) {
-    Serial.println("Logging data...");  // Debug message to track when writing starts
+  // Log data to SD card
+  logData(n, latitude, longitude);
 
-    for (int i = 0; i < n; ++i) {  // Log all networks to SD card
+  delay(2000);  // Wait 2 seconds before the next scan
+}
+
+String getGPSFilename() {
+  // Wait for a valid GPS date and time
+  while (!gps.date.isValid() || !gps.time.isValid()) {
+    while (GPSserial.available() > 0) {
+      gps.encode(GPSserial.read());
+    }
+    Serial.println("Waiting for GPS time...");
+    delay(1000);
+  }
+
+  // Create filename based on GPS date and time
+  String year = String(gps.date.year());
+  String month = String(gps.date.month());
+  String day = String(gps.date.day());
+  String hour = String(gps.time.hour());
+  String minute = String(gps.time.minute());
+  String second = String(gps.time.second());
+
+  // Format filename: log_YYYYMMDD_HHMMSS.txt
+  String filename = "/log_" + year + month + day + "_" + hour + minute + second + ".txt";
+  return filename;
+}
+
+void logData(int n, double latitude, double longitude) {
+  File dataFile = SD.open(filename, FILE_APPEND);
+  if (dataFile) {
+    Serial.println("Logging data...");
+    blinkLED(5, 100);  // Blink LED while writing data
+
+    for (int i = 0; i < n; ++i) {
       dataFile.print("SSID: ");
       dataFile.print(WiFi.SSID(i));
       dataFile.print(" | RSSI: ");
-      dataFile.println(WiFi.RSSI(i));
-      dataFile.print(" | GPS Latitude: ");
-      dataFile.println(latitude, 6);
-      dataFile.print(" | GPS Longitude: ");
+      dataFile.print(WiFi.RSSI(i));
+      dataFile.print(" | Lat: ");
+      dataFile.print(latitude, 6);
+      dataFile.print(" | Long: ");
       dataFile.println(longitude, 6);
       dataFile.println("-------------------");
     }
-    dataFile.close();  // Close the file after writing
-    Serial.println("Data logged successfully.");  // Confirm logging completion
-
-    delay(100);  // Short delay to allow file writing to complete
+    dataFile.close();
+    Serial.println("Data logged successfully.");
   } else {
-    Serial.println("Error opening file for writing.");
+    Serial.println("Failed to open log file!");
   }
-
-  delay(5000);  // Wait 5 seconds before next scan
 }
+
+void blinkLED(int times, int delayTime) {
+  for (int i = 0; i < times; ++i) {
+    digitalWrite(LED_BUILTIN, HIGH);
+    delay(delayTime);
+    digitalWrite(LED_BUILTIN, LOW);
+    delay(delayTime);
+  }
+}
+
 ```
 
 ## Estimate Network Location
@@ -143,72 +183,84 @@ void loop() {
 You can then run this python script which will prompt you to use the log file that was created to estimate the most likely location of the wifi networks that were scanned based on the RSSI values
 
 ```
+import pandas as pd
 import re
-from collections import defaultdict
+import numpy as np
 
-# Regular expression to match SSID, RSSI, Latitude, and Longitude
-log_entry_pattern = re.compile(
-    r"SSID: (.+?) \| RSSI: (-?\d+)\s*\|\s*GPS Latitude: (-?\d+\.\d+)\s*\|\s*GPS Longitude: (-?\d+\.\d+)"
-)
+# Adjust display options to show all rows
+pd.set_option("display.max_rows", None)
 
-# Function to calculate the average latitude and longitude
-def average_location(locations):
-    avg_lat = sum(lat for lat, _ in locations) / len(locations)
-    avg_lon = sum(lon for _, lon in locations) / len(locations)
-    return avg_lat, avg_lon
+def parse_log_file(filename):
+    """Extract SSID, RSSI, latitude, and longitude from the log file."""
+    pattern = r"SSID: (.+?) \| RSSI: (-?\d+) \| Lat: ([\d.-]+) \| Long: ([\d.-]+)"
+    data = []
 
-# Function to process the log file
-def estimate_wifi_locations(log_file):
-    # Dictionary to store network data
-    networks = defaultdict(list)
+    print("Reading log file...")  # Debugging message
 
-    # Read the log file
+    with open(filename, 'r') as f:
+        for line in f:
+            match = re.search(pattern, line)
+            if match:
+                ssid = match.group(1).strip()
+                rssi = int(match.group(2))
+                lat = float(match.group(3))
+                lon = float(match.group(4))
+                data.append([ssid, rssi, lat, lon])
+
+    if not data:
+        print("No valid data found in the log file.")
+        return pd.DataFrame(columns=["SSID", "RSSI", "Latitude", "Longitude"])
+
+    return pd.DataFrame(data, columns=["SSID", "RSSI", "Latitude", "Longitude"])
+
+def inverse_rssi_weight(rssi):
+    """Calculate a weight from RSSI, where stronger signals have higher weights."""
+    return 1 / (abs(rssi) + 1)  # Avoid division by zero with +1
+
+def weighted_average_location(group):
+    """Calculate the weighted average location using RSSI as the weight."""
+    if group.empty:
+        return pd.Series({"SSID": group.name, "Latitude": np.nan, "Longitude": np.nan})
+
+    weights = group["RSSI"].apply(inverse_rssi_weight)
+    lat_weighted_avg = np.average(group["Latitude"], weights=weights)
+    lon_weighted_avg = np.average(group["Longitude"], weights=weights)
+    return pd.Series({"SSID": group.name, "Latitude": lat_weighted_avg, "Longitude": lon_weighted_avg})
+
+def analyze_networks(filename):
+    """Analyze the log file and provide the best estimated location for each SSID."""
+    df = parse_log_file(filename)
+
+    if df.empty:
+        print("No valid data to analyze.")
+        return pd.DataFrame(columns=["SSID", "Latitude", "Longitude"])
+
+    # Group by SSID and calculate the weighted average location
+    best_locations = (
+        df.groupby("SSID", as_index=False, group_keys=True)
+        .apply(weighted_average_location)
+        .reset_index(drop=True)
+    )
+
+    # Display the results
+    print("\nEstimated Locations of Networks:")
+    print(best_locations)
+
+    return best_locations
+
+def main():
+    """Main function to prompt the user for the log file path and analyze it."""
+    print("Wi-Fi Network Location Estimator")
+    filename = input("Enter the path to the log file: ").strip()
+
     try:
-        with open(log_file, 'r') as file:
-            log_data = file.read()  # Read the entire log file content
-            matches = log_entry_pattern.findall(log_data)  # Find all matches
-
-            for match in matches:
-                ssid = match[0]
-                rssi = int(match[1])
-                latitude = float(match[2])
-                longitude = float(match[3])
-
-                # Store RSSI and location (latitude, longitude) for each SSID
-                networks[ssid].append((rssi, latitude, longitude))
-
+        best_approximations = analyze_networks(filename)
     except FileNotFoundError:
-        print(f"File {log_file} not found. Please check the file path.")
-        return
+        print(f"Error: File not found at '{filename}'. Please check the path and try again.")
+    except Exception as e:
+        print(f"An error occurred: {e}")
 
-    # Estimate the location of each network
-    estimated_locations = {}
-    for ssid, data in networks.items():
-        # Sort the entries by RSSI in descending order (strongest signal first)
-        data.sort(reverse=True, key=lambda x: x[0])
-
-        # Get the top 5 strongest signals (or fewer if not available)
-        top_signals = data[:5]
-
-        # Extract the GPS coordinates from the top signals
-        locations = [(lat, lon) for _, lat, lon in top_signals]
-
-        # Calculate the average location based on the strongest signals
-        estimated_locations[ssid] = average_location(locations)
-
-    return estimated_locations
-
-# Main function to read the log file and output estimated locations
 if __name__ == "__main__":
-    log_file = input("Enter the path to your log.txt file: ")
+    main()
 
-    # Estimate Wi-Fi network locations
-    wifi_locations = estimate_wifi_locations(log_file)
-
-    if wifi_locations:
-        print("\nEstimated Wi-Fi network locations:")
-        for ssid, (lat, lon) in wifi_locations.items():
-            print(f"SSID: {ssid} -> Estimated Location: Latitude {lat}, Longitude {lon}")
-    else:
-        print("No valid data to process.")
 ```
